@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NGO Management System - Demo Client</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+    body { background: #f0f2f5; padding: 20px; color: #333; }
+    .container { max-width: 900px; margin: 0 auto; }
+    header { background: #1e3a8a; color: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; text-align: center; }
+    header h1 { font-size: 24px; margin-bottom: 5px; }
+    header p { font-size: 14px; opacity: 0.9; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.08); margin-bottom: 20px; }
+    .card h2 { font-size: 18px; margin-bottom: 15px; color: #1e3a8a; border-bottom: 2px solid #e5e7eb; padding-bottom: 8px; }
+    label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+    input, select, button { width: 100%; padding: 10px; margin-bottom: 12px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
+    button { background: #2563eb; color: white; border: none; font-weight: bold; cursor: pointer; transition: 0.2s; }
+    button:hover { background: #1d4ed8; }
+    .btn-secondary { background: #64748b; }
+    .btn-secondary:hover { background: #475569; }
+    .btn-danger { background: #dc2626; }
+    .btn-danger:hover { background: #b91c1c; }
+    .status-box { background: #e0f2fe; border: 1px solid #bae6fd; padding: 12px; border-radius: 6px; margin-bottom: 15px; font-size: 14px; }
+    pre { background: #1e293b; color: #38bdf8; padding: 12px; border-radius: 6px; font-size: 12px; max-height: 250px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
+    .full-width { grid-column: span 2; }
+    @media (max-width: 768px) {
+      .grid { grid-template-columns: 1fr; }
+      .full-width { grid-column: span 1; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>NGO Management System Backend Demo</h1>
+      <p>College DBMS Project &bull; Express, MongoDB, JWT & Role-Based Access Control</p>
+    </header>
+
+    <!-- Auth Status -->
+    <div class="card">
+      <h2>1. Current Session & Token Status</h2>
+      <div class="status-box" id="authStatus">
+        Status: <strong>Not logged in</strong> (No access token in memory)
+      </div>
+      <div style="display: flex; gap: 10px;">
+        <button class="btn-secondary" onclick="refreshToken()">Refresh Access Token</button>
+        <button class="btn-danger" onclick="logout()">Logout</button>
+      </div>
+    </div>
+
+    <div class="grid">
+      <!-- Register & Login Form -->
+      <div class="card">
+        <h2>2. Register / Login</h2>
+        <label>Name (for registration):</label>
+        <input type="text" id="authName" placeholder="Full Name">
+
+        <label>Email:</label>
+        <input type="email" id="authEmail" placeholder="user@example.com">
+
+        <label>Password:</label>
+        <input type="password" id="authPassword" placeholder="******">
+
+        <label>Role:</label>
+        <select id="authRole">
+          <option value="user">user</option>
+          <option value="admin">admin</option>
+        </select>
+
+        <div style="display: flex; gap: 10px;">
+          <button onclick="register()">Register</button>
+          <button onclick="login()" style="background: #059669;">Login</button>
+        </div>
+      </div>
+
+      <!-- Demo Donation Form -->
+      <div class="card">
+        <h2>3. Demo Donation Form (Allowed for 'user' & 'admin')</h2>
+        <label>Donor ID (MongoDB ObjectId or Demo ID):</label>
+        <input type="text" id="donorId" placeholder="e.g. 664f1a2b3c4d5e6f7a8b9c0d">
+
+        <label>Donation Amount (Min: 1):</label>
+        <input type="number" id="donationAmount" min="1" placeholder="e.g. 500">
+
+        <label>Payment Mode:</label>
+        <select id="donationMode">
+          <option value="online">Online</option>
+          <option value="cash">Cash</option>
+          <option value="cheque">Cheque</option>
+        </select>
+
+        <button onclick="submitDonation()" style="background: #7c3aed;">Submit Donation</button>
+      </div>
+
+      <!-- Quick API Test & Fetch -->
+      <div class="card full-width">
+        <h2>4. Test Protected Routes (RBAC Verification)</h2>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px;">
+          <button style="width: auto;" onclick="fetchData('/api/donations')">Get All Donations (User & Admin)</button>
+          <button style="width: auto;" onclick="fetchData('/api/volunteers')">Get All Volunteers (User & Admin)</button>
+          <button style="width: auto;" onclick="fetchData('/api/donors')">Get All Donors (User & Admin)</button>
+          <button style="width: auto;" onclick="fetchData('/api/events')">Get All Events (User & Admin)</button>
+          <button style="width: auto; background: #ea580c;" onclick="testAdminOnly()">Test Admin Only Action (POST /api/volunteers)</button>
+        </div>
+        <label>API Output Response:</label>
+        <pre id="apiOutput">Click any button above or submit a form to see JSON response...</pre>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let accessToken = '';
+    let currentUser = null;
+
+    function setStatus(text) {
+      document.getElementById('authStatus').innerHTML = text;
+    }
+
+    function printOutput(data) {
+      document.getElementById('apiOutput').textContent = JSON.stringify(data, null, 2);
+    }
+
+    // 1. REGISTER
+    async function register() {
+      const name = document.getElementById('authName').value;
+      const email = document.getElementById('authEmail').value;
+      const password = document.getElementById('authPassword').value;
+      const role = document.getElementById('authRole').value;
+
+      try {
+        const res = await fetch('/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, email, password, role })
+        });
+        const data = await res.json();
+        printOutput(data);
+        if (res.ok) alert('Registration successful! You can now login.');
+      } catch (err) {
+        printOutput({ error: err.message });
+      }
+    }
+
+    // 2. LOGIN
+    async function login() {
+      const email = document.getElementById('authEmail').value;
+      const password = document.getElementById('authPassword').value;
+
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
+        });
+        const data = await res.json();
+        printOutput(data);
+
+        if (res.ok) {
+          accessToken = data.accessToken;
+          currentUser = data.user;
+          setStatus(`Logged in as: <strong>${currentUser.name}</strong> (${currentUser.email}) | Role: <span style="color:#2563eb; font-weight:bold;">${currentUser.role}</span>`);
+        }
+      } catch (err) {
+        printOutput({ error: err.message });
+      }
+    }
+
+    // 3. REFRESH TOKEN
+    async function refreshToken() {
+      try {
+        const res = await fetch('/api/auth/refresh', { method: 'POST' });
+        const data = await res.json();
+        printOutput(data);
+        if (res.ok && data.accessToken) {
+          accessToken = data.accessToken;
+          alert('New access token obtained via refresh token cookie!');
+        }
+      } catch (err) {
+        printOutput({ error: err.message });
+      }
+    }
+
+    // 4. LOGOUT
+    async function logout() {
+      try {
+        const res = await fetch('/api/auth/logout', { method: 'POST' });
+        const data = await res.json();
+        printOutput(data);
+        accessToken = '';
+        currentUser = null;
+        setStatus('Status: <strong>Not logged in</strong>');
+      } catch (err) {
+        printOutput({ error: err.message });
+      }
+    }
+
+    // 5. SUBMIT DEMO DONATION
+    async function submitDonation() {
+      if (!accessToken) {
+        alert('Please login first! Both "user" and "admin" can record donations.');
+        return;
+      }
+      const donorId = document.getElementById('donorId').value;
+      const amount = Number(document.getElementById('donationAmount').value);
+      const mode = document.getElementById('donationMode').value;
+
+      try {
+        const res = await fetch('/api/donations', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${accessToken}`
+          },
+          body: JSON.stringify({ donorId, amount, mode })
+        });
+        const data = await res.json();
+        printOutput(data);
+      } catch (err) {
+        printOutput({ error: err.message });
+      }
+    }
+
+    // 6. FETCH PROTECTED DATA (GET)
+    async function fetchData(url) {
+      if (!accessToken) {
+        alert('Please login first to view protected records!');
+        return;
+      }
+      try {
+        const res = await fetch(url, {
+          headers: { 'Authorization': `Bearer ${accessToken}` }
+        });
+        const data = await res.json();
+        printOutput(data);
+      } catch (err) {
+        printOutput({ error: err.message });
+      }
+    }
+
+    // 7. TEST ADMIN-ONLY ENDPOINT
+    async function testAdminOnly() {
+      if (!accessToken) {
+        alert('Please login first!');
+        return;
+      }
+      try {
+        const res = await fetch('/api/volunteers', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${accessToken}`
+          },
+          body: JSON.stringify({
+            name: 'Demo Volunteer',
+            email: 'volunteer@ngo.org',
+            phone: '9876543210',
+            skills: ['Teaching', 'Event Organizing']
+          })
+        });
+        const data = await res.json();
+        printOutput(data);
+      } catch (err) {
+        printOutput({ error: err.message });
+      }
+    }
+  </script>
+</body>
+</html>
