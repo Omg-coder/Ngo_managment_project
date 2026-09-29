@@ -1,12 +1,20 @@
-const Donation = require('../models/Donation');
-const Donor = require('../models/Donor');
-const User = require('../models/User');
+const db = require('../db');
+
+// Helper to format donation row for frontend compatibility
+const formatDonation = (row) => ({
+  id: row.id,
+  _id: row.id.toString(),
+  donorId: row.donor_id ? row.donor_id.toString() : null,
+  amount: Number(row.amount),
+  mode: row.mode,
+  date: row.date
+});
 
 // 1. GET ALL DONATIONS
 const getAllDonations = async (req, res) => {
   try {
-    const donations = await Donation.find();
-    res.status(200).json(donations);
+    const result = await db.query('SELECT * FROM donations ORDER BY id DESC');
+    res.status(200).json(result.rows.map(formatDonation));
   } catch (error) {
     res.status(500).json({ message: 'Error fetching donations', error: error.message });
   }
@@ -15,63 +23,73 @@ const getAllDonations = async (req, res) => {
 // 2. GET SINGLE DONATION BY ID
 const getDonationById = async (req, res) => {
   try {
-    const donation = await Donation.findById(req.params.id);
-    if (!donation) {
+    const result = await db.query('SELECT * FROM donations WHERE id = $1', [req.params.id]);
+    if (result.rows.length === 0) {
       return res.status(404).json({ message: 'Donation not found' });
     }
-    res.status(200).json(donation);
+    res.status(200).json(formatDonation(result.rows[0]));
   } catch (error) {
     res.status(500).json({ message: 'Error fetching donation', error: error.message });
   }
 };
 
-// 3. CREATE A NEW DONATION (Demo feature: supports custom donor name for admin or auto-link for user)
+// 3. CREATE A NEW DONATION (Supports custom donorName for Admin, auto-link for User)
 const createDonation = async (req, res) => {
   try {
     let { donorId, donorName, amount, mode, date } = req.body;
 
-    // 1. If admin provided a specific donor name (can be anyone)
+    // 1. If admin provided a specific donor name
     if (donorName && donorName.trim() && !donorId) {
       const trimmedName = donorName.trim();
-      let donor = await Donor.findOne({ name: trimmedName });
-      if (!donor) {
-        // Auto-create donor entry for this new name
+      const donorCheck = await db.query('SELECT id FROM donors WHERE name = $1 LIMIT 1', [trimmedName]);
+
+      if (donorCheck.rows.length > 0) {
+        donorId = donorCheck.rows[0].id;
+      } else {
         const cleanSlug = trimmedName.toLowerCase().replace(/[^a-z0-9]/g, '') || 'donor';
-        donor = await Donor.create({
-          name: trimmedName,
-          email: `${cleanSlug}@donor.ngo`,
-          phone: 'N/A',
-          type: 'individual'
-        });
+        const newDonor = await db.query(
+          'INSERT INTO donors (name, email, phone, type) VALUES ($1, $2, $3, $4) RETURNING id',
+          [trimmedName, `${cleanSlug}@donor.ngo`, 'N/A', 'individual']
+        );
+        donorId = newDonor.rows[0].id;
       }
-      donorId = donor._id;
     }
 
-    // 2. If neither donorId nor donorName was provided, auto-link to authenticated user
+    // 2. If no donorId or donorName, auto-link to authenticated user
     if (!donorId && req.user && req.user.id) {
-      const user = await User.findById(req.user.id);
+      const userResult = await db.query('SELECT name, email FROM users WHERE id = $1', [req.user.id]);
+      const user = userResult.rows[0];
       const userName = user ? user.name : (req.user.email || 'Community Contributor');
       const userEmail = user ? user.email : (req.user.email || 'contributor@ngo.org');
 
-      // Check if a donor profile already exists for this email
-      let donor = await Donor.findOne({ email: userEmail });
-      if (!donor) {
-        donor = await Donor.create({
-          name: userName,
-          email: userEmail,
-          phone: 'N/A',
-          type: 'individual'
-        });
+      const donorCheck = await db.query('SELECT id FROM donors WHERE email = $1 LIMIT 1', [userEmail]);
+      if (donorCheck.rows.length > 0) {
+        donorId = donorCheck.rows[0].id;
+      } else {
+        const newDonor = await db.query(
+          'INSERT INTO donors (name, email, phone, type) VALUES ($1, $2, $3, $4) RETURNING id',
+          [userName, userEmail, 'N/A', 'individual']
+        );
+        donorId = newDonor.rows[0].id;
       }
-      donorId = donor._id;
     }
 
-    const newDonation = await Donation.create({
-      donorId: donorId || null,
+    // Convert donorId to number if valid integer
+    const parsedDonorId = donorId ? parseInt(donorId, 10) : null;
+
+    const insertQuery = `
+      INSERT INTO donations (donor_id, amount, mode, date)
+      VALUES ($1, $2, $3, $4)
+      RETURNING *
+    `;
+    const result = await db.query(insertQuery, [
+      isNaN(parsedDonorId) ? null : parsedDonorId,
       amount,
       mode,
-      date: date || Date.now()
-    });
+      date || new Date()
+    ]);
+
+    const newDonation = formatDonation(result.rows[0]);
 
     res.status(201).json({
       message: 'Donation recorded successfully!',
@@ -85,17 +103,24 @@ const createDonation = async (req, res) => {
 // 4. UPDATE A DONATION BY ID
 const updateDonation = async (req, res) => {
   try {
-    const updatedDonation = await Donation.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      { new: true, runValidators: true }
-    );
-    if (!updatedDonation) {
+    const { amount, mode } = req.body;
+
+    const query = `
+      UPDATE donations
+      SET amount = COALESCE($1, amount),
+          mode = COALESCE($2, mode)
+      WHERE id = $3
+      RETURNING *
+    `;
+    const result = await db.query(query, [amount, mode, req.params.id]);
+
+    if (result.rows.length === 0) {
       return res.status(404).json({ message: 'Donation not found' });
     }
+
     res.status(200).json({
       message: 'Donation updated successfully!',
-      donation: updatedDonation
+      donation: formatDonation(result.rows[0])
     });
   } catch (error) {
     res.status(400).json({ message: 'Error updating donation', error: error.message });
@@ -105,8 +130,8 @@ const updateDonation = async (req, res) => {
 // 5. DELETE A DONATION BY ID
 const deleteDonation = async (req, res) => {
   try {
-    const deletedDonation = await Donation.findByIdAndDelete(req.params.id);
-    if (!deletedDonation) {
+    const result = await db.query('DELETE FROM donations WHERE id = $1 RETURNING *', [req.params.id]);
+    if (result.rows.length === 0) {
       return res.status(404).json({ message: 'Donation not found' });
     }
     res.status(200).json({ message: 'Donation deleted successfully!' });

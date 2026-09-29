@@ -1,8 +1,8 @@
 # HopeHarbor Initiative — NGO Management System
 
-A full-stack, beginner-friendly **NGO Management System** built with **Node.js, Express, MongoDB (Mongoose), React, and Tailwind CSS** for a college DBMS academic project.
+A full-stack, beginner-friendly **NGO Management System** built with **Node.js, Express, PostgreSQL, React, and Tailwind CSS** for a college DBMS academic project.
 
-The application features full CRUD operations, JWT access & refresh token authentication (stored in `httpOnly` cookies), Role-Based Access Control (RBAC) separating regular members from administrators, and an automated donation attribution mechanism.
+The application features full CRUD operations using raw SQL queries, foreign key relational constraints, JWT access & refresh token authentication (stored in `httpOnly` cookies), Role-Based Access Control (RBAC) separating regular members from administrators, and an automated donation attribution mechanism.
 
 ---
 
@@ -24,13 +24,13 @@ The application features full CRUD operations, JWT access & refresh token authen
 
 ## 🏛️ System Architecture
 
-- **Backend**: Node.js & Express REST API with modular MVC architecture (`/models`, `/controllers`, `/routes`, `/middleware`).
-- **Database**: MongoDB with Mongoose object modeling and schema validation.
+- **Backend**: Node.js & Express REST API with modular architecture (`/controllers`, `/routes`, `/middleware`, `db.js`, `schema.sql`).
+- **Database**: PostgreSQL with raw SQL queries via `pg` (node-postgres), featuring primary keys, foreign keys (`REFERENCES donors(id)`), checks, and automatic schema initialization.
 - **Frontend**: React (Vite) styled with Tailwind CSS v3 and routed using `react-router`.
 - **Security & Session Handling**:
   - Passwords hashed using `bcryptjs` (salt factor 10).
   - Short-lived Access Tokens (15 minutes) sent in response body.
-  - Long-lived Refresh Tokens (7 days) saved in MongoDB and issued via `httpOnly` secure cookies.
+  - Long-lived Refresh Tokens (7 days) saved in PostgreSQL `users` table and issued via `httpOnly` secure cookies.
   - Automatic 401 token refresh retry mechanism built into the client API wrapper.
 
 ---
@@ -55,15 +55,15 @@ The application features full CRUD operations, JWT access & refresh token authen
 
 ---
 
-## 🗄️ Database Collections (Schema)
+## 🗄️ Database Tables (SQL Schema)
 
-| Collection | Key Fields | Descriptions & Validations |
+| Table | Columns / Data Types | Descriptions, Keys & Constraints |
 |---|---|---|
-| **users** | `name`, `email`, `password`, `role`, `refreshToken` | `role` enum (`user`, `admin`), hashed password, unique lowercase email. |
-| **volunteers** | `name`, `email`, `phone`, `skills`, `joinedDate` | `skills` stored as array of strings, default join date `Date.now`. |
-| **donors** | `name`, `email`, `phone`, `type` | `type` enum (`individual`, `corporate`). |
-| **donations** | `donorId`, `amount`, `mode`, `date` | Ref to `Donor`, `amount` min 1, `mode` enum (`cash`, `online`, `cheque`). |
-| **events** | `title`, `date`, `location`, `volunteersAssigned` | Subdocument array containing `{ name, role }`. |
+| **users** | `id SERIAL PRIMARY KEY`, `name VARCHAR(255)`, `email VARCHAR(255) UNIQUE`, `password VARCHAR(255)`, `role VARCHAR(50)`, `refresh_token TEXT`, `created_at TIMESTAMP` | User authentication table. `role` CHECK constraint (`user`, `admin`), hashed password. |
+| **volunteers** | `id SERIAL PRIMARY KEY`, `name VARCHAR(255)`, `email VARCHAR(255)`, `phone VARCHAR(50)`, `skills TEXT[]`, `joined_date TIMESTAMP` | Field volunteers. `skills` stored as PostgreSQL array `TEXT[]`. |
+| **donors** | `id SERIAL PRIMARY KEY`, `name VARCHAR(255)`, `email VARCHAR(255)`, `phone VARCHAR(50)`, `type VARCHAR(50)`, `created_at TIMESTAMP` | Benefactors. `type` CHECK constraint (`individual`, `corporate`). |
+| **donations** | `id SERIAL PRIMARY KEY`, `donor_id INTEGER REFERENCES donors(id) ON DELETE SET NULL`, `amount NUMERIC(12, 2)`, `mode VARCHAR(50)`, `date TIMESTAMP` | Relational table. Foreign key to `donors`, `amount >= 1`, `mode` CHECK (`cash`, `online`, `cheque`). |
+| **events** | `id SERIAL PRIMARY KEY`, `title VARCHAR(255)`, `date TIMESTAMP`, `location VARCHAR(255)`, `volunteers_assigned JSONB`, `created_at TIMESTAMP` | Community programs. `volunteers_assigned` stored as structured `JSONB`. |
 
 ---
 
@@ -103,15 +103,9 @@ d:/postgresql/
 ├── .gitignore                 # Excluded node_modules, build, and secret files
 ├── package.json               # Backend dependencies and root scripts
 ├── server.js                  # Main Express backend server entry point
-├── models/                    # Mongoose database schemas
-│   ├── User.js
-│   ├── Volunteer.js
-│   ├── Donor.js
-│   ├── Donation.js
-│   └── Event.js
-├── middleware/                # JWT verify and RBAC middlewares
-│   └── authMiddleware.js
-├── controllers/               # Business logic & database operations
+├── db.js                      # PostgreSQL pool connection & auto-table init
+├── schema.sql                 # SQL table definitions, constraints, and keys
+├── controllers/               # SQL business logic & CRUD query operations
 │   ├── authController.js
 │   ├── volunteerController.js
 │   ├── donorController.js
@@ -160,7 +154,7 @@ d:/postgresql/
 
 ### Prerequisites
 - [Node.js](https://nodejs.org/) (v18 or higher recommended)
-- [MongoDB](https://www.mongodb.com/) (running locally or MongoDB Atlas URI)
+- [PostgreSQL](https://www.postgresql.org/) (running locally, e.g. v14–v18)
 - [Git](https://git-scm.com/)
 
 ### Environment Setup
@@ -172,7 +166,11 @@ d:/postgresql/
 3. Configure your variables inside `.env`:
    ```env
    PORT=5000
-   MONGO_URI=mongodb://127.0.0.1:27017/ngo_db
+   PG_HOST=localhost
+   PG_PORT=5432
+   PG_USER=postgres
+   PG_PASSWORD=pass123
+   PG_DATABASE=ngo_db
    ACCESS_TOKEN_SECRET=my_super_secret_access_key_12345
    REFRESH_TOKEN_SECRET=my_super_secret_refresh_key_67890
    ```

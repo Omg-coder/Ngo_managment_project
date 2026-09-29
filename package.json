@@ -9,7 +9,12 @@
     "frontend": "npm --prefix frontend run dev",
     "build:frontend": "npm --prefix frontend run build"
   },
-  "keywords": ["ngo", "dbms", "express", "mongodb"],
+  "keywords": [
+    "ngo",
+    "dbms",
+    "express",
+    "mongodb"
+  ],
   "author": "",
   "license": "ISC",
   "dependencies": {
@@ -19,7 +24,7 @@
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "jsonwebtoken": "^9.0.2",
-    "mongoose": "^8.4.0"
+    "pg": "^8.23.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.0"
